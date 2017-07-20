@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ExistentialQuantification #-}
 
 module Lib
     ( someFunc
@@ -17,22 +18,61 @@ import Data.List (intersperse)
 class Lua a where
   emit :: a -> T.Text
 
-newtype LNumber = LNumber Integer
+class Lua a => Expr a
+class Lua a => Stmt a
 
-instance Lua LNumber where
-  emit (LNumber i) = T.pack $ show i
+newtype LNumber = LNumber Integer
 
 newtype LString = LString T.Text
 
-instance Lua LString where
-  emit (LString t) = mconcat ["\"", t, "\""]
-
 newtype LSymbol = LSymbol T.Text
 
-instance Lua LSymbol where
-  emit (LSymbol v) = v
+data LFunDef = forall a. Stmt a => LFunDef T.Text [LSymbol] [a]
 
-data LFunDef = LFunDef T.Text [LSymbol] [LStatement]
+data LFunCall = forall a. Expr a => LFunCall T.Text [a]
+
+data LAssignment = forall a. Expr a => GlobalAssignment LSymbol a
+                 | forall a. Expr a => LocalAssignment  LSymbol a
+
+data LInfix = forall a. Expr a => LInfix a T.Text a
+
+-- TODO: implement the loop initializers
+newtype LInitializer = LInitializer T.Text
+
+instance Lua LInitializer where
+  emit (LInitializer e) = e
+
+data LBlock = forall a. Stmt a => LDo [a]
+            | forall a b. (Stmt a, Expr b) => LIf b [a] LBlock
+            | forall a b. (Stmt a, Expr b) => LElseIf b [a] LBlock
+            | forall a. Stmt a             => LElse [a]
+            | forall a b. (Stmt a, Expr b) => LWhile b [a]
+            | forall a. Stmt a             => LFor LInitializer [a] 
+            | LEnd
+
+instance Lua LBlock where
+  emit (LIf p body post) = mconcat
+    [ "if ", emit p, " then\n"
+    , "\t", emitJoined "\n" body, "\n"
+    , emit post]
+  emit (LElseIf p body post) = mconcat
+    [ "elseif ", emit p, " then\n"
+    , "\t", emitJoined "\n" body, "\n"
+    , emit post]
+  emit (LElse body) = mconcat
+    [ "else\n"
+    , "\t", emitJoined "\n" body, "\n"
+    , "end" ]
+  emit (LWhile p body) = mconcat
+    [ "while ", emit p, " do\n"
+    , "\t", emitJoined "\n" body, "\n"
+    , "end" ]
+  emit (LFor init body) = mconcat
+    [ "for ", emit init, " do\n"
+    , "\t", emitJoined "\n" body, "\n"
+    , "end"
+    ]
+    
 
 instance Lua LFunDef where
   emit (LFunDef name args body) = mconcat 
@@ -43,50 +83,45 @@ instance Lua LFunDef where
     where argList = emitJoined ", " args
           fullBody = emitJoined "\n" body
 
-data LFunCall = LFunCall T.Text [LExpr]
+instance Lua LSymbol where
+  emit (LSymbol v) = v
 
-emitJoined :: Lua a => T.Text -> [a] -> T.Text
-emitJoined div frags =
-  mconcat $ intersperse div $ map emit frags
+instance Lua LNumber where
+  emit (LNumber i) = T.pack $ show i
+
+instance Lua LString where
+  emit (LString t) = mconcat ["\"", t, "\""]
 
 instance Lua LFunCall where
   emit (LFunCall name args) = mconcat
     [ name, "(", emitJoined ", " args, ")" ]
 
-data LStatement = GlobalAssignment LSymbol LExpr
-                | LocalAssignment  LSymbol LExpr
-
-instance Lua LStatement where
+instance Lua LAssignment where
   emit (GlobalAssignment sym expr) = 
     mconcat [ emit sym, " = ", emit expr ]
   emit (LocalAssignment sym expr) =
     mconcat [ "local ", emit sym, " = ", emit expr ]
 
--- TODO: Needs completed list of expressions
--- This is so that we can selectively classify
--- some of our datatypes as expressions and
--- constrain some of the data constructor params.
--- 
--- A possible alternative is to declare a class
--- Expr which these datatypes can inhabit. This
--- would mean we would need GADTs to express the
--- constraints in the data constructors but would
--- mean less unwrapping of data constructors.
-data LExpr = EString LString
-              | ENumber LNumber
-              | EInfix LExpr T.Text LExpr
-              | ESymbol LSymbol
+instance Expr LString
+instance Expr LNumber
+instance Expr LSymbol
+instance Expr LInfix 
 
-instance Lua LExpr where
-  emit (EString e) = emit e
-  emit (ENumber e) = emit e
-  emit (EInfix e1 t e2) = mconcat [emit e1, " ", t, " ", emit e2]
-  emit (ESymbol e) = emit e
+instance Stmt LAssignment
 
+instance Lua LInfix where
+  emit (LInfix e1 t e2) = mconcat [emit e1, " ", t, " ", emit e2]
+
+emitJoined :: Lua a => T.Text -> [a] -> T.Text
+emitJoined div frags =
+  mconcat $ intersperse div $ map emit frags
+
+
+-- TESTS
 test1 = LFunDef "hello" [LSymbol "a", LSymbol "b"]
-  [ GlobalAssignment (LSymbol "global") (EInfix (ENumber (LNumber 2)) "+" (ENumber (LNumber 1))) ]
+  [ GlobalAssignment (LSymbol "global") (LInfix (LNumber 2) "+" (LNumber 1)) ]
 
-test2 = LFunCall "print" [EString (LString "hello"), EString (LString "there")]
+test2 = LFunCall "print" [LString "hello", LString "there"]
 
 runTest :: Lua a => a -> IO ()
 runTest = IO.putStrLn . emit
