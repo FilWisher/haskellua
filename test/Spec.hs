@@ -1,13 +1,9 @@
-import Lib
+import Language.Lua.DSL
 import Test.HUnit
 
-firsttest = TestCase 
-  (assertEqual "are equal"
-    1 1)
+firsttest = 1 ~?= 1
 
-secondtest = TestCase 
-  (assertEqual "are not equal"
-    1 2)
+secondtest = 1 ~?= 2
 
 tests = test
   [ TestLabel "first test" firsttest
