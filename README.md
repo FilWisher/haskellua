@@ -8,3 +8,9 @@ There is one central class:
 class Lua a where
   emit :: a -> Text
 ```
+
+And two support classes:
+```haskell
+class Stmt a
+class Expr a
+```
