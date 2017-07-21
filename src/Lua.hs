@@ -1,18 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ExistentialQuantification #-}
 
-module Lib
-    ( someFunc
-    , LNumber(..)
-    , Lua(..)
-    , test1
-    , test2
-    , runTest
-    ) where
+module Lua where
 
 import qualified Data.Text as T
-import Data.Text.IO as IO
 import Data.List (intersperse)
 
 class Lua a where
@@ -115,16 +106,3 @@ instance Lua LInfix where
 emitJoined :: Lua a => T.Text -> [a] -> T.Text
 emitJoined div frags =
   mconcat $ intersperse div $ map emit frags
-
-
--- TESTS
-test1 = LFunDef "hello" [LSymbol "a", LSymbol "b"]
-  [ GlobalAssignment (LSymbol "global") (LInfix (LNumber 2) "+" (LNumber 1)) ]
-
-test2 = LFunCall "print" [LString "hello", LString "there"]
-
-runTest :: Lua a => a -> IO ()
-runTest = IO.putStrLn . emit
-
-someFunc :: IO ()
-someFunc = IO.putStrLn $ emit test1
