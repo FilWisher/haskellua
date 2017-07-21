@@ -11,6 +11,6 @@ class Lua a where
 
 And two support classes:
 ```haskell
-class Stmt a
-class Expr a
+class Lua a => Stmt a
+class Lua a => Expr a
 ```
